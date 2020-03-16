@@ -218,7 +218,7 @@ singleuser:
       storageAccessModes: [ReadWriteMany]
   image:
     # custom image that contains a set of pre-installed libraries and tools
-    name: registry-ai-projects.dev.purestorage.com:5000/pure-k8s-singleuser
+    name: emilypotyraj/pure-k8s-singleuser
     tag: latest
     pullPolicy: IfNotPresent
   imagePullSecret:
