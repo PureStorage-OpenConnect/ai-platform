@@ -1,0 +1,24 @@
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: ai-shared-datasets     # edit as needed. if so, update JupyterHub value.yaml to match.
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: 50Gi
+  nfs:
+    server: 10.61.169.100      # CHANGE to your data vip 
+    path: /datasets            # CHANGE to your filesystem name
+  accessModes:
+    - ReadWriteMany
+  claimRef:
+    kind: PersistentVolumeClaim
+    name: ai-shared-datasets   # edit as needed. if so, update JupyterHub value.yaml to match.
+    apiVersion: v1
+  storageClassName: manual
+  mountOptions:
+    - nolock
+  volumeMode: Filesystem
+status:
+  phase: Bound

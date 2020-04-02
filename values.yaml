@@ -17,23 +17,6 @@ hub:
   consecutiveFailureLimit: 5
   activeServerLimit:
   deploymentStrategy:
-    # sqlite-pvc backed hub requires Recreate strategy to work
-    type: Recreate
-    # This is required for upgrading to work
-    rollingUpdate:
-  db:
-    type: sqlite-pvc
-    upgrade:
-    pvc:
-      annotations: {}
-      selector: {}
-      accessModes:
-        - ReadWriteOnce
-      storage: 1Gi
-      subPath:
-      storageClassName: pure-file
-    url:
-    password:
   labels: {}
   annotations: {}
   extraConfig: 
@@ -76,7 +59,7 @@ rbac:
 
 
 proxy:
-  secretToken: 'SECRET_TOKEN'   # insert 32-digit secret token (use straight quotes '') 
+  secretToken: 'SECRET_TOKEN'   # CHANGE to 32-digit secret token (use straight quotes '') 
   service:
     type: LoadBalancer
     labels: {}
@@ -115,7 +98,6 @@ proxy:
   https:
     enabled: true
     type: letsencrypt
-    #type: letsencrypt, manual, offload, secret
     letsencrypt:
       contactEmail: ''
     manual:
@@ -135,7 +117,7 @@ proxy:
 
 
 auth:
-  type: dummy
+  type: dummy       # dummy type is used for a demo environment. no passwords.  
   whitelist:
     users:
   admin:
@@ -153,7 +135,7 @@ auth:
     cryptoKey:
 
 
-singleuser:
+singleuser:         # This section is the template for an individual user's server.
   extraTolerations: []
   nodeSelector: {}
   extraNodeAffinity:
@@ -175,7 +157,6 @@ singleuser:
   networkPolicy:
     enabled: false
     egress:
-    # Required egress is handled by other rules so it's safe to modify this
       - to:
           - ipBlock:
               cidr: 0.0.0.0/0
@@ -196,30 +177,29 @@ singleuser:
   storage:
     type: dynamic
     extraLabels: {}
-    extraVolumes:   # access to shared datasets saved on FlashBlade 
+    extraVolumes:                          # access to shared datasets saved on FlashBlade 
       - name: shared-datasets
         persistentVolumeClaim: 
-          claimName: shared-ai-datasets   # persistent volume claim created in the cluster
+          claimName: shared-ai-datasets    # PVC created in the cluster for the existing filesystem
           storageClass: ""
     extraVolumeMounts: 
       - name: shared-datasets
-        mountPath: /home/shared   # mount path for shared datasets with each user's environment 
+        mountPath: /home/shared            # mount path for shared datasets with each user's environment 
     static:
       pvcName: 
-      subPath: /home/{username}   # user home directory
+      subPath: /home/{username}            # user's home directory path
       type: static
       uid: 0
     capacity: 10Gi
     homeMountPath: /home/jovyan
-    dynamic:   # set FlashBlade as the storage target for PVCs of user environments 
-      storageClass: pure-file   # storage class created in the cluster
+    dynamic:     # set FlashBlade as the storage target for PVCs of user environments 
+      storageClass: pure-file              # this storage class is created during PSO installation
       pvcNameTemplate: claim-{username}{servername}
       volumeNameTemplate: volume-{username}{servername}
       storageAccessModes: [ReadWriteMany]
-  image:
-    # custom image that contains a set of pre-installed libraries and tools
-    name: emilypotyraj/pure-k8s-singleuser
-    tag: latest
+  image:         # image to be the basis for user environments
+    name: emilypotyraj/pure-k8s-singleuser # custom image with preinstalled libraries and tools 
+    tag: latest                            # Ubuntu by default. Centos tag also available: centos
     pullPolicy: IfNotPresent
   imagePullSecret:
     enabled: false
@@ -238,69 +218,14 @@ singleuser:
     limits: {}
     guarantees: {}
   cmd: jupyterhub-singleuser
-  defaultUrl: "/lab"   # switch default view from "tree" to "lab"
+  defaultUrl: "/lab"                       # switches users' default view from "tree" to "lab"
 
 
-scheduling:
-  userScheduler:
-    enabled: false
-    replicas: 1
-    logLevel: 4
-    image:
-      name: gcr.io/google_containers/kube-scheduler-amd64
-      tag: v1.11.2
-    nodeSelector: {}
-    pdb:
-      enabled: true
-      minAvailable: 1
-    resources:
-      requests:
-        cpu: 50m
-        memory: 256Mi
-  podPriority:
-    enabled: false
-    globalDefault: false
-    defaultPriority: 0
-    userPlaceholderPriority: -10
-  userPlaceholder:
-    enabled: true
-    replicas: 0
-  corePods:
-    nodeAffinity:
-      matchNodePurpose: prefer
-  userPods:
-    nodeAffinity:
-      matchNodePurpose: prefer
-
-
-prePuller:
-  hook:
-    enabled: false
-    image:
-      name: jupyterhub/k8s-image-awaiter
-      tag: '0.8.2'
-  continuous:
-    enabled: false
-  extraImages: {}
-  pause:
-    image:
-      name: gcr.io/google_containers/pause
-      tag: '3.0'
-
-
-ingress:
-  enabled: false
-  annotations: {}
-  hosts: []
-  pathSuffix: ''
-  tls: []
-
-
-cull:
+cull:            # schedule auto-cleanup of user server pods
   enabled: true
   users: false
   timeout: 600   # every server idle for > 10 min will be shut down
-  every: 60   # check for inactivity every 60 sec
+  every: 60      # checks for inactivity every 60 sec
   concurrency: 10
   maxAge: 0
 

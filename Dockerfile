@@ -7,7 +7,7 @@
 # Base Dockerfile from Jupyter: https://github.com/jupyter/docker-stacks/tree/master/base-notebook
 # Modified by Pure Storage.
 
-ARG BASE_CONTAINER=ubuntu:bionic-20200112@sha256:bc025862c3e8ec4a8754ea4756e33da6c41cba38330d7e324abd25c8e0b93300
+ARG BASE_CONTAINER=centos:7
 FROM $BASE_CONTAINER
 
 LABEL maintainer="Jupyter Project <jupyter@googlegroups.com>"
@@ -19,27 +19,7 @@ USER root
 
 # Install all OS dependencies for notebook server that starts but lacks all
 # features (e.g., download as all possible file formats)
-ENV DEBIAN_FRONTEND noninteractive
-RUN apt-get update \
- && apt-get install -yq --no-install-recommends \
-    wget \
-    build-essential \
-    bzip2 \
-    ca-certificates \
-    sudo \
-    locales \
-    fonts-liberation \
-    run-one \
-    python3-dev \
-    python3-pip \
-    python3-pycurl \
-    nodejs \
-    npm \
-    sqlite3 \
- && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
-    locale-gen
+# install Python with conda, utf8 locale
 
 # Configure environment
 ENV CONDA_DIR=/opt/conda \
@@ -54,36 +34,22 @@ ENV PATH=$CONDA_DIR/bin:$PATH \
     HOME=/home/$NB_USER
 
 # Add a script that we will use to correct permissions after running certain commands
-ADD fix-permissions /usr/local/bin/fix-permissions
-RUN chmod a+rx /usr/local/bin/fix-permissions
 
 # Enable prompt color in the skeleton .bashrc before creating the default NB_USER
 RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /etc/skel/.bashrc
 
 # Create NB_USER wtih name jovyan user with UID=1000 and in the 'users' group
 # and make sure these dirs are writable by the `users` group.
-RUN echo "auth requisite pam_deny.so" >> /etc/pam.d/su && \
-    sed -i.bak -e 's/^%admin/#%admin/' /etc/sudoers && \
-    sed -i.bak -e 's/^%sudo/#%sudo/' /etc/sudoers && \
-    useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
-    mkdir -p $CONDA_DIR && \
-    chown $NB_USER:$NB_GID $CONDA_DIR && \
-    chmod g+w /etc/passwd && \
-    fix-permissions $HOME && \
-    fix-permissions "$(dirname $CONDA_DIR)"
-
-USER $NB_USER
 WORKDIR $HOME
 ARG PYTHON_VERSION=default
 
-# Setup work directory for backward-compatibility
-RUN mkdir /home/$NB_USER/work && \
-    fix-permissions /home/$NB_USER
 
 # Install conda as jovyan and check the md5 sum provided on the download site
 ENV MINICONDA_VERSION=4.7.12.1 \
     MINICONDA_MD5=81c773ff87af5cfac79ab862942ab6b3 \
     CONDA_VERSION=4.7.12
+
+RUN yum install -y wget
 
 RUN cd /tmp && \
     wget --quiet https://repo.continuum.io/miniconda/Miniconda3-${MINICONDA_VERSION}-Linux-x86_64.sh && \
@@ -100,18 +66,14 @@ RUN cd /tmp && \
     conda install --quiet --yes pip && \
     conda update --all --quiet --yes && \
     conda clean --all -f -y && \
-    rm -rf /home/$NB_USER/.cache/yarn && \
-    fix-permissions $CONDA_DIR && \
-    fix-permissions /home/$NB_USER
+    rm -rf /home/$NB_USER/.cache/yarn
 
 # Install Tini
 RUN conda install --quiet --yes 'tini=0.18.0' && \
     conda list tini | grep tini | tr -s ' ' | cut -d ' ' -f 1,2 >> $CONDA_DIR/conda-meta/pinned && \
-    conda clean --all -f -y && \
-    fix-permissions $CONDA_DIR && \
-    fix-permissions /home/$NB_USER
+    conda clean --all -f -y 
 
-
+RUN useradd -m -s /bin/bash -N -u $NB_UID $NB_USER
 USER $NB_USER
 
 # Install Jupyter Notebook, Lab, and Hub
@@ -120,6 +82,9 @@ USER $NB_USER
 # Correct permissions
 # Do all this in a single RUN command to avoid duplicating all of the
 # files across image layers when the permissions change
+#
+USER root
+
 RUN conda install --quiet --yes \
     'notebook=6.0.3' \
     'jupyterhub=1.1.0' \
@@ -128,9 +93,7 @@ RUN conda install --quiet --yes \
     npm cache clean --force && \
     jupyter notebook --generate-config && \
     rm -rf $CONDA_DIR/share/jupyter/lab/staging && \
-    rm -rf /home/$NB_USER/.cache/yarn && \
-    fix-permissions $CONDA_DIR && \
-    fix-permissions /home/$NB_USER
+    rm -rf /home/$NB_USER/.cache/yarn
 
 EXPOSE 8888
 
@@ -146,17 +109,19 @@ COPY jupyter_notebook_config.py /etc/jupyter/
 
 # Fix permissions on /etc/jupyter as root
 USER root
-RUN fix-permissions /etc/jupyter/
 
 USER root
 
 # ffmpeg for matplotlib anim
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+RUN yum update -y
+RUN yum install epel-release -y
+RUN rpm --import http://li.nux.ro/download/nux/RPM-GPG-KEY-nux.ro
+RUN rpm -Uvh http://li.nux.ro/download/nux/dextop/el7/x86_64/nux-dextop-release-0-5.el7.nux.noarch.rpm
+RUN yum install -y ffmpeg
 
-USER $NB_USER
+#USER $NB_USER
 
+USER root
 # Install Python 3 packages
 RUN conda install --quiet --yes \
     'beautifulsoup4=4.8.*' \
@@ -192,6 +157,7 @@ RUN conda install --quiet --yes \
 # Switch back to jovyan to avoid accidental container runs as root
 USER $NB_USER
 
+USER root
 # Create a folder of conda environments in the user's directory
 RUN conda config --set env_prompt '({username})' && \
 #    CONDA_ENVS_PATH=~/my-conda-envs && \ 
@@ -200,6 +166,34 @@ RUN conda config --set env_prompt '({username})' && \
 
 USER root
 ARG PURETOOLS_VER=1.0.0-beta.4
-RUN wget https://support.purestorage.com/@api/deki/files/14372/rapidfile-$PURETOOLS_VER.tar \
-        && tar -xvf rapidfile-$PURETOOLS_VER.tar \
-        && dpkg -i rapidfile-$PURETOOLS_VER/rapidfile-$PURETOOLS_VER-Linux.deb \
+COPY rapidfile-$PURETOOLS_VER.tar /usr/local/bin/
+RUN tar -xvf /usr/local/bin/rapidfile-$PURETOOLS_VER.tar \
+        && rpm -U rapidfile-$PURETOOLS_VER/rapidfile-$PURETOOLS_VER-Linux.rpm 
+
+RUN yum install -y net-tools
+RUN yum install -y nfs-utils
+
+RUN yum install -y zip 
+RUN yum install -y unzip
+
+# install libnfs
+RUN yum install -y gcc
+RUN yum install -y autoconf
+RUN yum install -y autogen
+RUN yum install -y libtool
+RUN yum install -y automake
+RUN yum install -y make
+
+COPY libnfs-master /usr/local/bin/libnfs-master
+
+WORKDIR "/usr/local/bin/libnfs-master/"
+RUN ./bootstrap \
+        && ./configure \
+		&& make \
+		&& make install
+
+WORKDIR $HOME
+
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+
+RUN yum install -y libXrender
